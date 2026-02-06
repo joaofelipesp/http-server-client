@@ -63,16 +63,16 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 		if(!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")){
 			continue;
 		}
-		char filename[BUFMAX], encodedPath[BUFMAX], uri[BUFMAX];
+		char filename[BUFMAX], encodedUri[BUFMAX], uri[BUFMAX];
 		snprintf(filename, BUFMAX, "%s/%s%s", baseDir, path, entry->d_name);
 
-		if(urlEncode(entry->d_name, encodedPath, BUFMAX)){
+		snprintf(uri, BUFMAX, "%s%s", path, entry->d_name);
+		if(urlEncode(uri, encodedUri, BUFMAX)){
 			fprintf(stderr, "Error: failed to encode URL");
 			free(responseBody);
 			closedir(dir);
 			return 1;
 		}
-		snprintf(uri, BUFMAX, "%s%s", path, encodedPath);
 
 		struct stat statbuf;
 		if(stat(filename, &statbuf) == -1){
@@ -88,7 +88,7 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 			"<td>%s</td>"
 			"<td>%.2f KiB</td>\r\n"
 			"<tr>\r\n",
-			host, uri, entry->d_name,
+			host, encodedUri, entry->d_name,
 			ctime(&statbuf.st_mtime),
 			statbuf.st_size/1024.f
 		);
