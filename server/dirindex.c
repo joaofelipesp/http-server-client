@@ -32,6 +32,7 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 	char *responseBody = malloc(1);
 	if(!responseBody){
 		perror("malloc failed");
+		closedir(dir);
 		return 1;
 	}
 
@@ -48,6 +49,7 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 	if(!tmp){
 		perror("realloc failed");
 		free(responseBody);
+		closedir(dir);
 		return 1;
 	} responseBody = tmp;
 
@@ -68,6 +70,7 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 		if(stat(filename, &statbuf) == -1){
 			perror(filename);
 			free(responseBody);
+			closedir(dir);
 			return 1;
 		}
 
@@ -86,6 +89,7 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 		if(!tmp){
 			perror("realloc failed");
 			free(responseBody);
+			closedir(dir);
 			return 1;
 		} responseBody = tmp;
 
@@ -99,6 +103,7 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 	if(!tmp){
 			perror("realloc failed");
 			free(responseBody);
+			closedir(dir);
 			return 1;
 	} responseBody = tmp;
 
@@ -120,6 +125,7 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 		// Envio parcial do cabeçalho
 		fprintf(stderr, "Error: partial write of HTTP header.\n");
 		free(responseBody);
+		closedir(dir);
 		close(sockfd);
 		return 1;
 	}
@@ -131,6 +137,7 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 		if(written == -1){
 			perror("write");
 			close(sockfd);
+			closedir(dir);
 			return 1;
 		}
 		totalWritten += (size_t)written;
@@ -138,6 +145,7 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 
 	free(responseBody);
 	close(sockfd);
+	closedir(dir);
 	return 0;
 }
 
