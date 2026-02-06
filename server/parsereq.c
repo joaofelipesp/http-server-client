@@ -108,7 +108,7 @@ int parseRequest(char *req, ParsedRequest *preq){
 			freeParsedRequest(preq);
 			return 3;
 		}
-		strncpy(preq->path, decodedPath, strlen(decodedPath));
+		snprintf(preq->path, BUFMAX, "%s", decodedPath);
 
 		preq->path[uriEndPtr-uriStartPtr] = '\x00';
 	}
@@ -138,8 +138,7 @@ int parseRequest(char *req, ParsedRequest *preq){
 			freeParsedRequest(preq);
 			return 3;
 		}
-		strncpy(preq->host, host, hostEnd-host);
-		preq->host[hostEnd-host] = '\x00';
+		snprintf(preq->host, 1+hostEnd-host, "%s", host);
 	}
 	return 0;
 }
