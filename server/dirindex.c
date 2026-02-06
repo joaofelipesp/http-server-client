@@ -159,13 +159,19 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 
 //Se o endereço da página não termina com "/", redirecionar
 int redirectToDir(int sockfd, char *host, char *dirname){
-	char response[BUFMAX];
+	char response[BUFMAX], encodedUri[BUFMAX];
+
+	if(urlEncode(dirname, encodedUri, BUFMAX)){
+		close(sockfd);
+		return 1;
+	}
+
 	ssize_t responseLen = snprintf(response, BUFMAX,
 		"HTTP/1.1 301 Moved Permanently\r\n"
 		"Location: http://%s/%s/\r\n"
 		"Content-Length: 0\r\n"
 		"\r\n",
-		host, dirname
+		host, encodedUri
 	);
 
 	ssize_t totalWritten = 0;
