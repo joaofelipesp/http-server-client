@@ -12,6 +12,7 @@
 #include "dirindex.h"
 #include "parsereq.h"
 #include "servefile.h"
+#include "urlencode.h"
 
 #define BUFMAX 4096
 
@@ -62,9 +63,16 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 		if(!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")){
 			continue;
 		}
-		char filename[BUFMAX], url[BUFMAX];
+		char filename[BUFMAX], encodedPath[BUFMAX], uri[BUFMAX];
 		snprintf(filename, BUFMAX, "%s/%s%s", baseDir, path, entry->d_name);
-		snprintf(url, BUFMAX, "http://%s/%s%s", host, path, entry->d_name);
+
+		if(urlEncode(entry->d_name, encodedPath, BUFMAX)){
+			fprintf(stderr, "Error: failed to encode URL");
+			free(responseBody);
+			closedir(dir);
+			return 1;
+		}
+		snprintf(uri, BUFMAX, "%s%s", path, encodedPath);
 
 		struct stat statbuf;
 		if(stat(filename, &statbuf) == -1){
@@ -76,11 +84,11 @@ int listDirectory(int sockfd, char *host, char *baseDir, char *path){
 
 		partLen = snprintf(buffer, BUFMAX,
 			"<tr>\r\n"
-			"<td><a href=\"%s\">%s</a></td>"
+			"<td><a href=\"http://%s/%s\">%s</a></td>"
 			"<td>%s</td>"
 			"<td>%.2f KiB</td>\r\n"
 			"<tr>\r\n",
-			url, entry->d_name,
+			host, uri, entry->d_name,
 			ctime(&statbuf.st_mtime),
 			statbuf.st_size/1024.f
 		);
