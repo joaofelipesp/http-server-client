@@ -3,6 +3,9 @@
 #include <string.h>
 
 #include "parsereq.h"
+#include "urlencode.h"
+
+#define BUFMAX 4096
 
 // Busca case-insensitive de um campo no cabeçalho HTTP
 char *findHeaderField(char *header, char *headerEnd, char *fieldName){
@@ -88,13 +91,24 @@ int parseRequest(char *req, ParsedRequest *preq){
 			return 1;
 		}
 
-		preq->path = malloc(1 + (uriEndPtr-uriStartPtr));
+		char decodedPath[BUFMAX];
+		*uriEndPtr = '\x00';
+
+		if(urlDecode(uriStartPtr, decodedPath, BUFMAX)){
+			fprintf(stderr, "Error: failed to decode URL.\n");
+			freeParsedRequest(preq);
+			return 1;
+		}
+
+		*uriEndPtr = ' ';
+
+		preq->path = malloc(1 + strlen(decodedPath));
 		if(!preq->path){
 			perror("malloc failed");
 			freeParsedRequest(preq);
 			return 3;
 		}
-		strncpy(preq->path, uriStartPtr, uriEndPtr-uriStartPtr);
+		strncpy(preq->path, decodedPath, strlen(decodedPath));
 
 		preq->path[uriEndPtr-uriStartPtr] = '\x00';
 	}
