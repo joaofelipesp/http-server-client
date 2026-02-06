@@ -16,145 +16,122 @@
 
 #define BUFMAX 4096
 
+// Enviar um chunk usando chunked encoding
+int sendChunk(int sockfd, const char *data, size_t len){
+    char header[32];
+    int headerLen = snprintf(header, sizeof(header), "%zx\r\n", len);
+
+    if(write(sockfd, header, headerLen) != headerLen) return 1;
+    if(len > 0 && write(sockfd, data, len) != (ssize_t)len) return 1;
+    if(write(sockfd, "\r\n", 2) != 2) return 1;
+
+    return 0;
+}
+
 // Gerar HTML com a listagem de arquivos e enviar pelo socket
 int listDirectory(int sockfd, char *host, char *baseDir, char *path){
-	DIR *dir;
-	struct dirent *entry;
+    DIR *dir;
+    struct dirent *entry;
+    char buffer[BUFMAX];
 
-	char buffer[BUFMAX];
-	snprintf(buffer, BUFMAX, "%s/%s", baseDir, path);
+    snprintf(buffer, BUFMAX, "%s/%s", baseDir, path);
+    dir = opendir(buffer);
+    if(!dir){
+        perror("opendir failed");
+        return 1;
+    }
 
-	dir = opendir(buffer);
-	if(dir == NULL){
-		perror("opendir failed");
-		return 1;
-	}
+    // Cabeçalho HTTP
+    ssize_t headerLen = snprintf(buffer, BUFMAX,
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html\r\n"
+        "Transfer-Encoding: chunked\r\n"
+        "\r\n"
+    );
 
-	char *responseBody = malloc(1);
-	if(!responseBody){
-		perror("malloc failed");
-		closedir(dir);
-		return 1;
-	}
+    if(write(sockfd, buffer, headerLen) != headerLen){
+        closedir(dir);
+        close(sockfd);
+        return 1;
+    }
 
-	ssize_t partLen = snprintf(buffer, BUFMAX,
-		"<!DOCTYPE html><html>\r\n"
-		"<style>table {margin-left: auto; margin-right: auto; width: 50%%;}</style>\r\n"
-		"<body>\r\n"
-		"<h1>Index of <i>/%s</i></h1>\r\n"
-		"<table>",
-		path
-	);
+    // Chunk do cabeçalho HTML
+    ssize_t len = snprintf(buffer, BUFMAX,
+        "<!DOCTYPE html><html>\r\n"
+        "<style>table {margin-left: auto; margin-right: auto; width: 50%%;}</style>\r\n"
+        "<body>\r\n"
+        "<h1>Index of <i>/%s</i></h1>\r\n"
+        "<table>\r\n",
+        path
+    );
 
-	char *tmp = realloc(responseBody, 1+partLen);
-	if(!tmp){
-		perror("realloc failed");
-		free(responseBody);
-		closedir(dir);
-		return 1;
-	} responseBody = tmp;
+    if(sendChunk(sockfd, buffer, len)){
+        closedir(dir);
+        close(sockfd);
+        return 1;
+    }
 
-	memcpy(responseBody, buffer, partLen);
-	size_t responseBodyLen = partLen;
+    // Entradas de diretório
+    while((entry = readdir(dir))){
+        if(!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
 
-	// Processar cada arquivo na pasta
-	while((entry = readdir(dir))){
-		// Pular entradas "." e ".."
-		if(!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")){
-			continue;
-		}
-		char filename[BUFMAX], encodedUri[BUFMAX], uri[BUFMAX];
-		snprintf(filename, BUFMAX, "%s/%s%s", baseDir, path, entry->d_name);
+        char filename[BUFMAX];
+        char uri[BUFMAX];
+        char encodedUri[BUFMAX];
 
-		snprintf(uri, BUFMAX, "%s%s", path, entry->d_name);
-		if(urlEncode(uri, encodedUri, BUFMAX)){
-			fprintf(stderr, "Error: failed to encode URL");
-			free(responseBody);
-			closedir(dir);
-			return 1;
-		}
+        snprintf(filename, BUFMAX, "%s/%s%s", baseDir, path, entry->d_name);
+        snprintf(uri, BUFMAX, "%s%s", path, entry->d_name);
 
-		struct stat statbuf;
-		if(stat(filename, &statbuf) == -1){
-			perror(filename);
-			free(responseBody);
-			closedir(dir);
-			return 1;
-		}
+        if(urlEncode(uri, encodedUri, BUFMAX)){
+            fprintf(stderr, "Error: Failed to encode URI.\n");
+            closedir(dir);
+            close(sockfd);
+            return 1;
+        }
 
-		partLen = snprintf(buffer, BUFMAX,
-			"<tr>\r\n"
-			"<td><a href=\"http://%s/%s\">%s</a></td>"
-			"<td>%s</td>"
-			"<td>%.2f KiB</td>\r\n"
-			"<tr>\r\n",
-			host, encodedUri, entry->d_name,
-			ctime(&statbuf.st_mtime),
-			statbuf.st_size/1024.f
-		);
+        struct stat statbuf;
+        if(stat(filename, &statbuf) == -1){
+            perror(filename);
+            closedir(dir);
+            close(sockfd);
+            return 1;
+        }
 
-		char *tmp = realloc(responseBody, 1+responseBodyLen+partLen);
-		if(!tmp){
-			perror("realloc failed");
-			free(responseBody);
-			closedir(dir);
-			return 1;
-		} responseBody = tmp;
+        len = snprintf(buffer, BUFMAX,
+            "<tr>\r\n"
+            "<td><a href=\"http://%s/%s\">%s</a></td>"
+            "<td>%s</td>"
+            "<td>%.2f KiB</td>\r\n"
+            "</tr>\r\n",
+            host,
+            encodedUri,
+            entry->d_name,
+            ctime(&statbuf.st_mtime),
+            statbuf.st_size / 1024.f
+        );
 
-		memcpy(responseBody + responseBodyLen, buffer, partLen);
-		responseBodyLen += partLen;
-	}
+        if(sendChunk(sockfd, buffer, len)){
+            closedir(dir);
+            close(sockfd);
+            return 1;
+        }
+    }
 
-	const char responseEnd[] = "</table></body></html>\r\n";
+    // Rodapé HTML
+    const char *footer = "</table></body></html>\r\n";
+    if(sendChunk(sockfd, footer, strlen(footer))){
+        closedir(dir);
+        close(sockfd);
+        return 1;
+    }
 
-	tmp = realloc(responseBody, 1+responseBodyLen+sizeof(responseEnd));
-	if(!tmp){
-			perror("realloc failed");
-			free(responseBody);
-			closedir(dir);
-			return 1;
-	} responseBody = tmp;
+    // Chunk final
+    write(sockfd, "0\r\n\r\n", 5);
 
-	memcpy(responseBody+responseBodyLen, responseEnd, sizeof(responseEnd));
-	responseBodyLen += sizeof(responseEnd);
-
-	// Gerar cabeçalho HTTP
-	char header[BUFMAX];
-	ssize_t headerLen = snprintf(header, BUFMAX,
-		"HTTP/1.1 200 OK\r\n"
-		"Content-Type: text/html\r\n"
-		"Content-Length: %ld\r\n"
-		"\r\n",
-		responseBodyLen
-	);
-
-	ssize_t hwritten = write(sockfd, header,(size_t)headerLen);
-	if(hwritten != headerLen){
-		// Envio parcial do cabeçalho
-		fprintf(stderr, "Error: partial write of HTTP header.\n");
-		free(responseBody);
-		closedir(dir);
-		close(sockfd);
-		return 1;
-	}
-
-	// Loop para resolver envio parcial do buffer
-	size_t totalWritten = 0;
-	while(totalWritten < responseBodyLen){
-		ssize_t written = write(sockfd, responseBody+totalWritten, responseBodyLen-totalWritten);
-		if(written == -1){
-			perror("write");
-			close(sockfd);
-			closedir(dir);
-			return 1;
-		}
-		totalWritten += (size_t)written;
-	}
-
-	free(responseBody);
-	close(sockfd);
-	closedir(dir);
-	return 0;
+    closedir(dir);
+    close(sockfd);
+    return 0;
 }
 
 //Se o endereço da página não termina com "/", redirecionar
