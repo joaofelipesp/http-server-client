@@ -12,7 +12,7 @@ int urlEncode(const char *in, char *out, int n){
 	while(*in){
 		unsigned char c = (unsigned char)*in;
 
-		if(isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~'){
+		if(isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~' || c == '/'){
 			if (1+i >= n) return 1;
 			out[i++] = c;
 		}else {
